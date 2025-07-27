@@ -211,6 +211,8 @@ router.get('/sequence', protect, admin, asyncHandler(async (req, res) => {
 router.put('/sequence', protect, admin, asyncHandler(async (req, res) => {
   try {
     const { sequences } = req.body; // Array of { id, sequence }
+    
+    console.log('Received sequence update request:', JSON.stringify(sequences, null, 2));
 
     if (!Array.isArray(sequences)) {
       return res.status(400).json({
@@ -230,17 +232,23 @@ router.put('/sequence', protect, admin, asyncHandler(async (req, res) => {
     const updatePromises = sequences.map(async ({ id, sequence }) => {
       const sequenceNum = parseInt(sequence);
       
-      // Check if this is a MongoDB ObjectId or portfolio JSON ID
-      if (mongoose.Types.ObjectId.isValid(id)) {
-        // MongoDB project
-        return await Project.findByIdAndUpdate(id, { sequence: sequenceNum }, { new: true });
-      } else {
-        // Portfolio JSON project
-        const portfolioItem = portfolioItemsById[id];
-        if (portfolioItem) {
-          portfolioItem.sequence = sequenceNum;
-          return { _id: id, title: portfolioItem.title, sequence: sequenceNum };
+      try {
+        // Check if this is a MongoDB ObjectId or portfolio JSON ID
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          // MongoDB project
+          const updatedProject = await Project.findByIdAndUpdate(id, { sequence: sequenceNum }, { new: true });
+          return updatedProject;
+        } else {
+          // Portfolio JSON project
+          const portfolioItem = portfolioItemsById[id];
+          if (portfolioItem) {
+            portfolioItem.sequence = sequenceNum;
+            return { _id: id, title: portfolioItem.title, sequence: sequenceNum };
+          }
+          return null;
         }
+      } catch (error) {
+        console.error(`Error updating sequence for project ${id}:`, error);
         return null;
       }
     });
@@ -248,7 +256,12 @@ router.put('/sequence', protect, admin, asyncHandler(async (req, res) => {
     const updatedProjects = (await Promise.all(updatePromises)).filter(Boolean);
     
     // Save updated portfolio JSON
-    await fs.promises.writeFile(files.portfolio, JSON.stringify(portfolioItems, null, 2));
+    try {
+      await fs.promises.writeFile(files.portfolio, JSON.stringify(portfolioItems, null, 2));
+    } catch (writeError) {
+      console.error('Error writing portfolio JSON:', writeError);
+      // Don't fail the request if JSON write fails
+    }
 
     res.json({
       success: true,
