@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [],     
+        "excludeFiles": [
+          "node_modules/**/*",  
+          "**/*.test.js",      
+          "**/__tests__/**",
+          "**/*.md",
+          "**/*.map",
+          ".git/**",
+          ".github/**"
+        ]
+      }
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/"
+    }
+  ]
+}
