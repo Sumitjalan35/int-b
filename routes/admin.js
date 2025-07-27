@@ -542,6 +542,51 @@ router.post('/portfolio', asyncHandler(async (req, res) => {
     const newItem = { ...req.body, id: newId };
     items.push(newItem);
     await writeJson(files.portfolio, items);
+    
+    // Also create/update in MongoDB for sequence management
+    try {
+      const Project = require('../models/Project');
+      const User = require('../models/User');
+      
+      // Get admin user for createdBy field
+      const adminUser = await User.findOne({ role: 'superadmin' });
+      
+      // Check if project already exists in MongoDB
+      const existingProject = await Project.findOne({ title: newItem.title });
+      
+      if (existingProject) {
+        // Update existing project
+        existingProject.description = newItem.description;
+        existingProject.category = newItem.category;
+        existingProject.sequence = newItem.sequence || 0;
+        existingProject.images = newItem.images?.map((img, index) => ({
+          url: img,
+          alt: `${newItem.title} - Image ${index + 1}`,
+          isPrimary: index === 0
+        })) || [];
+        await existingProject.save();
+      } else {
+        // Create new project in MongoDB
+        const projectData = {
+          title: newItem.title,
+          description: newItem.description,
+          category: newItem.category || 'residential',
+          images: newItem.images?.map((img, index) => ({
+            url: img,
+            alt: `${newItem.title} - Image ${index + 1}`,
+            isPrimary: index === 0
+          })) || [],
+          sequence: newItem.sequence || 0,
+          published: true,
+          createdBy: adminUser?._id
+        };
+        await Project.create(projectData);
+      }
+    } catch (mongoError) {
+      console.error('Error syncing with MongoDB:', mongoError);
+      // Don't fail the request if MongoDB sync fails
+    }
+    
     res.json(newItem);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create project' });
@@ -554,9 +599,34 @@ router.put('/portfolio/:id', asyncHandler(async (req, res) => {
     const projectId = parseInt(req.params.id);
     const idx = items.findIndex(i => i.id === projectId);
     if (idx === -1) return res.status(404).json({ error: 'Project not found' });
-    items[idx] = { ...items[idx], ...req.body };
+    
+    const updatedItem = { ...items[idx], ...req.body };
+    items[idx] = updatedItem;
     await writeJson(files.portfolio, items);
-    res.json(items[idx]);
+    
+    // Also update in MongoDB for sequence management
+    try {
+      const Project = require('../models/Project');
+      
+      // Find and update the project in MongoDB
+      const mongoProject = await Project.findOne({ title: updatedItem.title });
+      if (mongoProject) {
+        mongoProject.description = updatedItem.description;
+        mongoProject.category = updatedItem.category;
+        mongoProject.sequence = updatedItem.sequence || 0;
+        mongoProject.images = updatedItem.images?.map((img, index) => ({
+          url: img,
+          alt: `${updatedItem.title} - Image ${index + 1}`,
+          isPrimary: index === 0
+        })) || [];
+        await mongoProject.save();
+      }
+    } catch (mongoError) {
+      console.error('Error syncing with MongoDB:', mongoError);
+      // Don't fail the request if MongoDB sync fails
+    }
+    
+    res.json(updatedItem);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update project' });
   }
@@ -566,8 +636,24 @@ router.delete('/portfolio/:id', asyncHandler(async (req, res) => {
   try {
     let items = await readJson(files.portfolio);
     const projectId = parseInt(req.params.id);
+    
+    // Get the project title before deleting for MongoDB sync
+    const projectToDelete = items.find(i => i.id === projectId);
+    
     items = items.filter(i => i.id !== projectId);
     await writeJson(files.portfolio, items);
+    
+    // Also delete from MongoDB for sequence management
+    if (projectToDelete) {
+      try {
+        const Project = require('../models/Project');
+        await Project.findOneAndDelete({ title: projectToDelete.title });
+      } catch (mongoError) {
+        console.error('Error syncing with MongoDB:', mongoError);
+        // Don't fail the request if MongoDB sync fails
+      }
+    }
+    
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete project' });
