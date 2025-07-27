@@ -1,10 +1,21 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const mongoose = require('mongoose');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { protect, admin, optionalAuth } = require('../middleware/auth');
 const Project = require('../models/Project');
 const { upload, uploadfile } = require('../middleware/upload');
+
+// Import JSON file functions
+const files = {
+  portfolio: path.join(__dirname, '../data/portfolio.json')
+};
+
+async function readJson(file) {
+  const data = await fs.promises.readFile(file, 'utf8');
+  return JSON.parse(data);
+}
 
 const router = express.Router();
 
@@ -132,15 +143,66 @@ router.get('/', optionalAuth, asyncHandler(async (req, res) => {
 // @route   GET /api/projects/sequence
 // @access  Private/Admin
 router.get('/sequence', protect, admin, asyncHandler(async (req, res) => {
-  const projects = await Project.find({})
-    .populate('createdBy', 'username')
-    .sort({ sequence: 1, createdAt: -1 })
-    .select('_id title sequence category published featured');
+  try {
+    // Get MongoDB projects
+    const mongoProjects = await Project.find({})
+      .populate('createdBy', 'username')
+      .sort({ sequence: 1, createdAt: -1 })
+      .select('_id title sequence category published featured');
 
-  res.json({
-    success: true,
-    data: projects
-  });
+    // Get portfolio JSON items
+    const portfolioItems = await readJson(files.portfolio);
+    
+    // Create a map of MongoDB projects by title for easy lookup
+    const mongoProjectsByTitle = {};
+    mongoProjects.forEach(project => {
+      mongoProjectsByTitle[project.title] = project;
+    });
+
+    // Combine both data sources, prioritizing MongoDB for sequence management
+    const combinedProjects = portfolioItems.map(item => {
+      const mongoProject = mongoProjectsByTitle[item.title];
+      
+      if (mongoProject) {
+        // Use MongoDB data if available
+        return {
+          _id: mongoProject._id,
+          title: mongoProject.title,
+          category: mongoProject.category,
+          sequence: mongoProject.sequence,
+          published: mongoProject.published,
+          featured: mongoProject.featured,
+          source: 'mongodb'
+        };
+      } else {
+        // Use portfolio JSON data if not in MongoDB
+        return {
+          _id: item.id, // Use portfolio ID as string
+          title: item.title,
+          category: item.category,
+          sequence: item.sequence || 0,
+          published: true,
+          featured: item.featured || false,
+          source: 'portfolio'
+        };
+      }
+    });
+
+    // Sort by sequence
+    combinedProjects.sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+
+    res.json({
+      success: true,
+      data: combinedProjects
+    });
+  } catch (error) {
+    console.error('Error getting sequence data:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get sequence data',
+      error: error.message
+    });
+  }
 }));
 
 // @desc    Update project sequence (admin only)
@@ -150,8 +212,6 @@ router.put('/sequence', protect, admin, asyncHandler(async (req, res) => {
   try {
     const { sequences } = req.body; // Array of { id, sequence }
 
-    console.log('Received sequences update request:', sequences);
-
     if (!Array.isArray(sequences)) {
       return res.status(400).json({
         success: false,
@@ -159,14 +219,36 @@ router.put('/sequence', protect, admin, asyncHandler(async (req, res) => {
       });
     }
 
-    // Update each project's sequence
-    const updatePromises = sequences.map(async ({ id, sequence }) => {
-      console.log(`Updating project ${id} with sequence ${sequence}`);
-      return await Project.findByIdAndUpdate(id, { sequence: parseInt(sequence) }, { new: true });
+    // Get portfolio items to check which projects are in JSON vs MongoDB
+    const portfolioItems = await readJson(files.portfolio);
+    const portfolioItemsById = {};
+    portfolioItems.forEach(item => {
+      portfolioItemsById[item.id.toString()] = item;
     });
 
-    const updatedProjects = await Promise.all(updatePromises);
-    console.log('Successfully updated sequences for', updatedProjects.length, 'projects');
+    // Update sequences in both MongoDB and portfolio JSON
+    const updatePromises = sequences.map(async ({ id, sequence }) => {
+      const sequenceNum = parseInt(sequence);
+      
+      // Check if this is a MongoDB ObjectId or portfolio JSON ID
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        // MongoDB project
+        return await Project.findByIdAndUpdate(id, { sequence: sequenceNum }, { new: true });
+      } else {
+        // Portfolio JSON project
+        const portfolioItem = portfolioItemsById[id];
+        if (portfolioItem) {
+          portfolioItem.sequence = sequenceNum;
+          return { _id: id, title: portfolioItem.title, sequence: sequenceNum };
+        }
+        return null;
+      }
+    });
+
+    const updatedProjects = (await Promise.all(updatePromises)).filter(Boolean);
+    
+    // Save updated portfolio JSON
+    await fs.promises.writeFile(files.portfolio, JSON.stringify(portfolioItems, null, 2));
 
     res.json({
       success: true,
