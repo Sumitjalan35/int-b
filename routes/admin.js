@@ -599,7 +599,12 @@ router.get('/services/:id', asyncHandler(async (req, res) => {
 router.post('/services', asyncHandler(async (req, res) => {
   try {
     const items = await readJson(files.services);
-    const newId = Math.max(...items.map(i => i.id), 0) + 1;
+    // Generate a unique string ID if not provided
+    let newId = req.body.id;
+    if (!newId) {
+      // Generate a unique ID based on title or use timestamp
+      newId = req.body.title ? req.body.title.toUpperCase().replace(/\s+/g, '_') : `SERVICE_${Date.now()}`;
+    }
     const newItem = { ...req.body, id: newId };
     items.push(newItem);
     await writeJson(files.services, items);
@@ -626,7 +631,7 @@ router.put('/services/:id', asyncHandler(async (req, res) => {
 router.delete('/services/:id', asyncHandler(async (req, res) => {
   try {
     let items = await readJson(files.services);
-    const serviceId = parseInt(req.params.id);
+    const serviceId = req.params.id; // Don't parse as integer, keep as string
     items = items.filter(i => i.id !== serviceId);
     await writeJson(files.services, items);
     res.json({ success: true });
