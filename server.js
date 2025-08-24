@@ -40,6 +40,9 @@ const upload = multer({ storage: storage });
 
 const app = express();
 
+// Trust proxy for Render/Heroku environments
+app.set('trust proxy', 1);
+
 // Connect to MongoDB
 connectDB();
 
