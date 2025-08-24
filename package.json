@@ -7,6 +7,10 @@
     "dev": "nodemon server.js",
     "setup": "node scripts/setup.js",
     "create-admin": "node scripts/createAdmin.js",
+    "setup-env": "node setup-env.js",
+    "fix-descriptions": "node scripts/fixMissingDescriptions.js",
+    "sync-portfolio": "node scripts/syncPortfolioToMongo.js",
+    "check-mongo": "node scripts/checkMongoData.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
