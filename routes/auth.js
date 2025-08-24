@@ -18,8 +18,12 @@ const authLimiter = rateLimit({
 
 // Generate JWT Token
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE
+  // Use environment variable or fallback to 30 days
+  const jwtSecret = process.env.JWT_SECRET || '3f8d9f8d9f8d9f8d9f8d9f8d9f8d9f8d';
+  const jwtExpire = process.env.JWT_EXPIRE || '30d';
+  
+  return jwt.sign({ id }, jwtSecret, {
+    expiresIn: jwtExpire
   });
 };
 
@@ -268,6 +272,34 @@ router.put('/users/:id', protect, admin, asyncHandler(async (req, res) => {
     success: true,
     data: updatedUser
   });
+}));
+
+// @desc    Refresh JWT token
+// @route   POST /api/auth/refresh
+// @access  Private
+router.post('/refresh', protect, asyncHandler(async (req, res) => {
+  try {
+    // User is already authenticated via protect middleware
+    // Generate a new token
+    const newToken = generateToken(req.user._id);
+    
+    res.json({
+      success: true,
+      data: {
+        _id: req.user._id,
+        username: req.user.username,
+        email: req.user.email,
+        role: req.user.role,
+        token: newToken
+      }
+    });
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to refresh token'
+    });
+  }
 }));
 
 module.exports = router; 
