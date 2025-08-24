@@ -556,8 +556,8 @@ router.post('/portfolio', asyncHandler(async (req, res) => {
       
       if (existingProject) {
         // Update existing project
-        existingProject.description = newItem.description;
-        existingProject.category = newItem.category;
+        existingProject.description = newItem.description || `${newItem.title} - Interior Design Project`;
+        existingProject.category = newItem.category || 'residential';
         existingProject.sequence = newItem.sequence || 0;
         existingProject.images = newItem.images?.map((img, index) => ({
           url: img,
@@ -569,7 +569,7 @@ router.post('/portfolio', asyncHandler(async (req, res) => {
         // Create new project in MongoDB
         const projectData = {
           title: newItem.title,
-          description: newItem.description,
+          description: newItem.description || `${newItem.title} - Interior Design Project`,
           category: newItem.category || 'residential',
           images: newItem.images?.map((img, index) => ({
             url: img,
@@ -611,8 +611,8 @@ router.put('/portfolio/:id', asyncHandler(async (req, res) => {
       // Find and update the project in MongoDB
       const mongoProject = await Project.findOne({ title: updatedItem.title });
       if (mongoProject) {
-        mongoProject.description = updatedItem.description;
-        mongoProject.category = updatedItem.category;
+        mongoProject.description = updatedItem.description || `${updatedItem.title} - Interior Design Project`;
+        mongoProject.category = updatedItem.category || 'residential';
         mongoProject.sequence = updatedItem.sequence || 0;
         mongoProject.images = updatedItem.images?.map((img, index) => ({
           url: img,
