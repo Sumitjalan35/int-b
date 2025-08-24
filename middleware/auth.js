@@ -12,7 +12,8 @@ const protect = async (req, res, next) => {
       token = req.headers.authorization.split(' ')[1];
 
       // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const jwtSecret = process.env.JWT_SECRET || '3f8d9f8d9f8d9f8d9f8d9f8d9f8d9f8d';
+      const decoded = jwt.verify(token, jwtSecret);
 
       // Get user from token
       const user = await User.findById(decoded.id).select('-password');
@@ -35,9 +36,18 @@ const protect = async (req, res, next) => {
       next();
     } catch (error) {
       console.error('Token verification error:', error);
+      
+      let message = 'Not authorized, token failed';
+      if (error.name === 'TokenExpiredError') {
+        message = 'Token has expired. Please login again.';
+      } else if (error.name === 'JsonWebTokenError') {
+        message = 'Invalid token. Please login again.';
+      }
+      
       return res.status(401).json({
         success: false,
-        message: 'Not authorized, token failed'
+        message,
+        error: error.name
       });
     }
   }
@@ -85,7 +95,8 @@ const optionalAuth = async (req, res, next) => {
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     try {
       token = req.headers.authorization.split(' ')[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const jwtSecret = process.env.JWT_SECRET || '3f8d9f8d9f8d9f8d9f8d9f8d9f8d9f8d';
+      const decoded = jwt.verify(token, jwtSecret);
       const user = await User.findById(decoded.id).select('-password');
       
       if (user && user.isActive) {
