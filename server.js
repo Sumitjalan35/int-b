@@ -150,7 +150,12 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ 
     status: 'OK', 
     message: 'Interior Design API is running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    jwt: {
+      secret: process.env.JWT_SECRET ? 'Configured' : 'Using fallback',
+      expire: process.env.JWT_EXPIRE || '30d (fallback)',
+      trustProxy: app.get('trust proxy')
+    }
   });
 });
 
