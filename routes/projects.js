@@ -255,13 +255,7 @@ router.put('/sequence', protect, admin, asyncHandler(async (req, res) => {
 
     const updatedProjects = (await Promise.all(updatePromises)).filter(Boolean);
     
-    // Save updated portfolio JSON
-    try {
-      await fs.promises.writeFile(files.portfolio, JSON.stringify(portfolioItems, null, 2));
-    } catch (writeError) {
-      console.error('Error writing portfolio JSON:', writeError);
-      // Don't fail the request if JSON write fails
-    }
+   
 
     res.json({
       success: true,
