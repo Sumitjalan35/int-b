@@ -1,0 +1,12 @@
+# Ignore the local uploads folder
+uploads/
+
+# Ignore local node_modules
+node_modules/
+
+# Ignore git files
+.git/
+
+# Ignore environment files
+.env
+.env.local
