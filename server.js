@@ -1,4 +1,3 @@
-console.log('EMAIL CONFIG:', process.env.EMAIL_HOST, process.env.EMAIL_PORT, process.env.EMAIL_USER, process.env.EMAIL_PASS);
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -24,9 +23,9 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 // Cloudinary config
 cloudinary.config({
-  cloud_name: 'dsffxqf8f',
-  api_key: process.env.CLOUDINARY_API_KEY || '433893671529262',
-  api_secret: process.env.CLOUDINARY_API_SECRET || 'qth_FC6o6lyIgt0oNEa4oNsDEu8',
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dsffxqf8f',
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
 const storage = new CloudinaryStorage({
@@ -141,10 +140,8 @@ app.post('/api/admin/upload-cloudinary', upload.single('images'), (req, res) => 
   res.json({ url: req.file.path });
 });
 
-// Logging middleware
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
-}
+// Logging middleware (always on; more detailed in dev)
+app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -158,6 +155,11 @@ app.get('/api/health', (req, res) => {
       trustProxy: app.get('trust proxy')
     }
   });
+});
+
+// Simple health route (no /api prefix) for platforms/monitors
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK' });
 });
 
 // Error handling middleware
