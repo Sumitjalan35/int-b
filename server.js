@@ -133,6 +133,11 @@ app.use('/api/slideshow', slideshowRoutes);
 
 // Cloudinary image upload endpoint
 app.post('/api/admin/upload-cloudinary', upload.single('images'), (req, res) => {
+  if (!process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+    return res.status(500).json({
+      error: 'Cloudinary is not configured on the server. Set CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET in deployment env vars.'
+    });
+  }
   if (!req.file || !req.file.path) {
     return res.status(400).json({ error: 'No file uploaded' });
   }

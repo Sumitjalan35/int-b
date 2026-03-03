@@ -1,36 +1,52 @@
 const multer = require('multer');
 const { v2: cloudinary } = require('cloudinary');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, './public');
+    // Vercel/serverless: only /tmp is writable
+    cb(null, os.tmpdir());
   },
   filename: function (req, file, cb) {
-    cb(null, file.originalname);
+    const ext = path.extname(file.originalname || '');
+    const name = crypto.randomBytes(16).toString('hex');
+    cb(null, `${name}${ext}`);
   }
 });
 
 const upload = multer({ storage });
 
 cloudinary.config({
-  cloud_name: 'dsffxqf8f',
-  api_key: process.env.API_KEY,
-  api_secret: process.env.API_SECRET
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dsffxqf8f',
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
 const uploadfile = async (localfilepath) => {
   try {
     if (!localfilepath) return null;
+    if (!process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      throw new Error('Cloudinary is not configured (missing CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET)');
+    }
     const responsefromcloud = await cloudinary.uploader.upload(localfilepath, {
       resource_type: 'auto',
     });
-    console.log(responsefromcloud);
-    fs.unlinkSync(localfilepath);
+    try {
+      fs.unlinkSync(localfilepath);
+    } catch (_) {
+      // ignore
+    }
     return responsefromcloud;
   } catch (err) {
-    console.log(err);
-    fs.unlinkSync(localfilepath);
+    console.error('Cloudinary upload failed:', err?.message || err);
+    try {
+      if (localfilepath) fs.unlinkSync(localfilepath);
+    } catch (_) {
+      // ignore
+    }
     return null;
   }
 };

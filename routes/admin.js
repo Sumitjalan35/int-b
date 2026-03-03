@@ -4,6 +4,9 @@ const { protect, admin, checkPermission } = require('../middleware/auth');
 const User = require('../models/User');
 const Contact = require('../models/Contact');
 const Project = require('../models/Project'); // Make sure this is imported
+const PortfolioCard = require('../models/PortfolioCard');
+const ServiceCard = require('../models/ServiceCard');
+const SlideshowImage = require('../models/SlideshowImage');
 const { Parser } = require('json2csv');
 const fs = require('fs/promises');
 const path = require('path');
@@ -11,9 +14,9 @@ const { upload, uploadfile } = require('../middleware/upload');
 const cloudinary = require('cloudinary').v2;
 
 cloudinary.config({
-  cloud_name: 'dsffxqf8f',
-  api_key: process.env.CLOUDINARY_API_KEY || '433893671529262',
-  api_secret: process.env.CLOUDINARY_API_SECRET || 'qth_FC6o6lyIgt0oNEa4oNsDEu8',
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dsffxqf8f',
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
 // VERCEL FIX: You cannot write to these files on Vercel.
@@ -415,10 +418,8 @@ router.get('/export/projects', checkPermission('export_data'), asyncHandler(asyn
 // --- Portfolio CRUD (JSON-based) ---
 router.get('/portfolio', asyncHandler(async (req, res) => {
   try {
-    // VERCEL FIX: This still reads from the JSON file.
-    // This should be changed to read from the 'Project' model in MongoDB
-    const items = await readJson(files.portfolio);
-    res.json(items);
+    const items = await PortfolioCard.find({}).sort({ sequence: 1, legacyId: 1 }).lean();
+    res.json(items.map(({ legacyId, ...rest }) => ({ ...rest, id: legacyId })));
   } catch (error) {
     res.status(500).json({ error: 'Failed to load portfolio data' });
   }
@@ -426,13 +427,11 @@ router.get('/portfolio', asyncHandler(async (req, res) => {
 
 router.get('/portfolio/:id', asyncHandler(async (req, res) => {
   try {
-    // VERCEL FIX: This still reads from the JSON file.
-    // This should be changed to read from the 'Project' model in MongoDB
-    const items = await readJson(files.portfolio);
-    const projectId = parseInt(req.params.id);
-    const item = items.find(i => i.id === projectId);
-    if (!item) return res.status(404).json({ error: 'Project not found' });
-    res.json(item);
+    const projectId = parseInt(req.params.id);
+    const item = await PortfolioCard.findOne({ legacyId: projectId }).lean();
+    if (!item) return res.status(404).json({ error: 'Project not found' });
+    const { legacyId, ...rest } = item;
+    res.json({ ...rest, id: legacyId });
   } catch (error) {
     res.status(500).json({ error: 'Failed to load project data' });
   }
@@ -440,59 +439,12 @@ router.get('/portfolio/:id', asyncHandler(async (req, res) => {
 
 router.post('/portfolio', asyncHandler(async (req, res) => {
   try {
-    const items = await readJson(files.portfolio);
-    const newId = Math.max(...items.map(i => i.id), 0) + 1;
-    const newItem = { ...req.body, id: newId };
-    items.push(newItem);
-    
-    // VERCEL FIX: Removed the 'await writeJson(files.portfolio, items);' line
-    // This was causing the 500 error.
-    
-    // Also create/update in MongoDB for sequence management
-    try {
-      // const Project = require('../models/Project'); // Already imported at top
-      // const User = require('../models/User'); // Already imported at top
-      
-      // Get admin user for createdBy field
-      const adminUser = await User.findOne({ role: 'superadmin' });
-      
-      // Check if project already exists in MongoDB
-      const existingProject = await Project.findOne({ title: newItem.title });
-      
-      if (existingProject) {
-        // Update existing project
-        existingProject.description = newItem.description || `${newItem.title} - Interior Design Project`;
-        existingProject.category = newItem.category || 'residential';
-        existingProject.sequence = newItem.sequence || 0;
-        existingProject.images = newItem.images?.map((img, index) => ({
-          url: img,
-          alt: `${newItem.title} - Image ${index + 1}`,
-          isPrimary: index === 0
-        })) || [];
-        await existingProject.save();
-      } else {
-        // Create new project in MongoDB
-        const projectData = {
-          title: newItem.title,
-          description: newItem.description || `${newItem.title} - Interior Design Project`,
-          category: newItem.category || 'residential',
-          images: newItem.images?.map((img, index) => ({
-            url: img,
-            alt: `${newItem.title} - Image ${index + 1}`,
-            isPrimary: index === 0
-          })) || [],
-          sequence: newItem.sequence || 0,
-          published: true,
-          createdBy: adminUser?._id
-        };
-        await Project.create(projectData);
-      }
-    } catch (mongoError) {
-      console.error('Error syncing with MongoDB:', mongoError);
-      // Don't fail the request if MongoDB sync fails
-    }
-    
-    res.json(newItem);
+    const max = await PortfolioCard.findOne({}).sort({ legacyId: -1 }).select('legacyId').lean();
+    const newId = (max?.legacyId || 0) + 1;
+    const created = await PortfolioCard.create({ legacyId: newId, ...req.body });
+    const obj = created.toObject();
+    const { legacyId, ...rest } = obj;
+    res.json({ ...rest, id: legacyId });
   } catch (error) {
     res.status(500).json({ error: 'Failed to create project' });
   }
@@ -500,40 +452,15 @@ router.post('/portfolio', asyncHandler(async (req, res) => {
 
 router.put('/portfolio/:id', asyncHandler(async (req, res) => {
   try {
-    const items = await readJson(files.portfolio);
-    const projectId = parseInt(req.params.id);
-    const idx = items.findIndex(i => i.id === projectId);
-    if (idx === -1) return res.status(404).json({ error: 'Project not found' });
-    
-    const updatedItem = { ...items[idx], ...req.body };
-    items[idx] = updatedItem;
-    
-    // VERCEL FIX: Removed the 'await writeJson(files.portfolio, items);' line
-    // This was causing the 500 error.
-    
-    // Also update in MongoDB for sequence management
-    try {
-      // const Project = require('../models/Project'); // Already imported at top
-      
-      // Find and update the project in MongoDB
-      const mongoProject = await Project.findOne({ title: updatedItem.title });
-      if (mongoProject) {
-        mongoProject.description = updatedItem.description || `${updatedItem.title} - Interior Design Project`;
-        mongoProject.category = updatedItem.category || 'residential';
-        mongoProject.sequence = updatedItem.sequence || 0;
-        mongoProject.images = updatedItem.images?.map((img, index) => ({
-          url: img,
-          alt: `${updatedItem.title} - Image ${index + 1}`,
-          isPrimary: index === 0
-        })) || [];
-        await mongoProject.save();
-      }
-    } catch (mongoError) {
-      console.error('Error syncing with MongoDB:', mongoError);
-      // Don't fail the request if MongoDB sync fails
-    }
-    
-    res.json(updatedItem);
+    const projectId = parseInt(req.params.id);
+    const updated = await PortfolioCard.findOneAndUpdate(
+      { legacyId: projectId },
+      { ...req.body, legacyId: projectId },
+      { new: true }
+    ).lean();
+    if (!updated) return res.status(404).json({ error: 'Project not found' });
+    const { legacyId, ...rest } = updated;
+    res.json({ ...rest, id: legacyId });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update project' });
 }
@@ -541,29 +468,10 @@ router.put('/portfolio/:id', asyncHandler(async (req, res) => {
 
 router.delete('/portfolio/:id', asyncHandler(async (req, res) => {
   try {
-    let items = await readJson(files.portfolio);
-    const projectId = parseInt(req.params.id);
-    
-    // Get the project title before deleting for MongoDB sync
-    const projectToDelete = items.find(i => i.id === projectId);
-    
-    items = items.filter(i => i.id !== projectId);
-    
-    // VERCEL FIX: Removed the 'await writeJson(files.portfolio, items);' line
-    // This was the bug causing your 500 error.
-    
-    // Also delete from MongoDB for sequence management
-    if (projectToDelete) {
-      try {
-        // const Project = require('../models/Project'); // Already imported at top
-        await Project.findOneAndDelete({ title: projectToDelete.title });
-      } catch (mongoError) {
-        console.error('Error syncing with MongoDB:', mongoError);
-        // Don't fail the request if MongoDB sync fails
-      }
-    }
-    
-    res.json({ success: true });
+    const projectId = parseInt(req.params.id);
+    const deleted = await PortfolioCard.findOneAndDelete({ legacyId: projectId }).lean();
+    if (!deleted) return res.status(404).json({ error: 'Project not found' });
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete project' });
   }
@@ -576,7 +484,7 @@ router.delete('/portfolio/:id', asyncHandler(async (req, res) => {
 
 router.get('/services', asyncHandler(async (req, res) => {
   try {
-    const items = await readJson(files.services);
+    const items = await ServiceCard.find({}).sort({ title: 1 }).lean();
     res.json(items);
   } catch (error) {
     res.status(500).json({ error: 'Failed to load services data' });
@@ -585,8 +493,7 @@ router.get('/services', asyncHandler(async (req, res) => {
 
 router.get('/services/:id', asyncHandler(async (req, res) => {
   try {
-    const items = await readJson(files.services);
-    const item = items.find(i => i.id === req.params.id);
+    const item = await ServiceCard.findOne({ id: req.params.id }).lean();
     if (!item) return res.status(404).json({ error: 'Service not found' });
     res.json(item);
   } catch (error) {
@@ -596,17 +503,14 @@ router.get('/services/:id', asyncHandler(async (req, res) => {
 
 router.post('/services', asyncHandler(async (req, res) => {
   try {
-    const items = await readJson(files.services);
     let newId = req.body.id;
-    if (!newId) {
-      newId = req.body.title ? req.body.title.toUpperCase().replace(/\s+/g, '_') : `SERVICE_${Date.now()}`;
-    }
-    const newItem = { ...req.body, id: newId };
-    items.push(newItem);
-    
-    // VERCEL FIX: Commented out to prevent crash. Data will NOT be saved.
-    // await writeJson(files.services, items);
-    res.json(newItem);
+    if (!newId) newId = req.body.title ? String(req.body.title).toUpperCase().replace(/\s+/g, '_') : `SERVICE_${Date.now()}`;
+
+    const existing = await ServiceCard.findOne({ id: newId }).lean();
+    if (existing) return res.status(409).json({ error: 'Service already exists' });
+
+    const created = await ServiceCard.create({ ...req.body, id: newId });
+    res.json(created.toObject());
   } catch (error) {
     res.status(500).json({ error: 'Failed to create service' });
   }
@@ -614,14 +518,13 @@ router.post('/services', asyncHandler(async (req, res) => {
 
 router.put('/services/:id', asyncHandler(async (req, res) => {
   try {
-    const items = await readJson(files.services);
-    const index = items.findIndex(i => i.id === req.params.id);
-    if (index === -1) return res.status(404).json({ error: 'Service not found' });
-    items[index] = { ...items[index], ...req.body };
-    
-    // VERCEL FIX: Commented out to prevent crash. Data will NOT be saved.
-    // await writeJson(files.services, items);
-    res.json(items[index]);
+    const updated = await ServiceCard.findOneAndUpdate(
+      { id: req.params.id },
+      { ...req.body, id: req.params.id },
+      { new: true }
+    ).lean();
+    if (!updated) return res.status(404).json({ error: 'Service not found' });
+    res.json(updated);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update service' });
   }
@@ -629,12 +532,8 @@ router.put('/services/:id', asyncHandler(async (req, res) => {
 
 router.delete('/services/:id', asyncHandler(async (req, res) => {
   try {
-    let items = await readJson(files.services);
-    const serviceId = req.params.id;
-    items = items.filter(i => i.id !== serviceId);
-    
-    // VERCEL FIX: Commented out to prevent crash. Data will NOT be saved.
-    // await writeJson(files.services, items);
+    const deleted = await ServiceCard.findOneAndDelete({ id: req.params.id }).lean();
+    if (!deleted) return res.status(404).json({ error: 'Service not found' });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete service' });
@@ -648,8 +547,8 @@ router.delete('/services/:id', asyncHandler(async (req, res) => {
 
 router.get('/slideshow', asyncHandler(async (req, res) => {
   try {
-    const items = await readJson(files.slideshow);
-    res.json(items);
+    const items = await SlideshowImage.find({}).sort({ sequence: 1, createdAt: 1 }).lean();
+    res.json(items.map((i) => i.url));
   } catch (error) {
     res.status(500).json({ error: 'Failed to load slideshow data' });
   }
@@ -657,13 +556,18 @@ router.get('/slideshow', asyncHandler(async (req, res) => {
 
 router.post('/slideshow', asyncHandler(async (req, res) => {
   try {
-    const items = await readJson(files.slideshow);
     const { image } = req.body;
     if (!image) return res.status(400).json({ error: 'Image required' });
-    items.push(image);
-    
-    // VERCEL FIX: Commented out to prevent crash. Data will NOT be saved.
-    // await writeJson(files.slideshow, items);
+
+    const max = await SlideshowImage.findOne({}).sort({ sequence: -1 }).select('sequence').lean();
+    const nextSeq = (max?.sequence ?? -1) + 1;
+
+    await SlideshowImage.updateOne(
+      { url: image },
+      { $setOnInsert: { url: image, sequence: nextSeq } },
+      { upsert: true }
+    );
+
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to add slideshow image' });
@@ -672,13 +576,22 @@ router.post('/slideshow', asyncHandler(async (req, res) => {
 
 router.delete('/slideshow/:idx', asyncHandler(async (req, res) => {
   try {
-    let items = await readJson(files.slideshow);
     const idx = parseInt(req.params.idx);
+    const items = await SlideshowImage.find({}).sort({ sequence: 1, createdAt: 1 }).lean();
     if (isNaN(idx) || idx < 0 || idx >= items.length) return res.status(404).json({ error: 'Image not found' });
-    items.splice(idx, 1);
-    
-    // VERCEL FIX: Commented out to prevent crash. Data will NOT be saved.
-    // await writeJson(files.slideshow, items);
+
+    const toDelete = items[idx];
+    await SlideshowImage.deleteOne({ _id: toDelete._id });
+
+    // Resequence to keep stable index-based deletion semantics
+    const remaining = await SlideshowImage.find({}).sort({ sequence: 1, createdAt: 1 }).lean();
+    await SlideshowImage.bulkWrite(
+      remaining.map((item, i) => ({
+        updateOne: { filter: { _id: item._id }, update: { $set: { sequence: i } } },
+      })),
+      { ordered: false }
+    );
+
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete slideshow image' });
